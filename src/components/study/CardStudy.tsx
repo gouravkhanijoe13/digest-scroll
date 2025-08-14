@@ -34,11 +34,17 @@ export const CardStudy = ({ deckId, onComplete }: CardStudyProps) => {
   }, [user, deckId]);
 
   const fetchCards = async () => {
+    if (!user) return;
+    
+    setLoading(true);
     try {
+      console.log('Fetching cards for deck:', deckId);
+      
       const { data, error } = await supabase
         .from('deck_cards')
         .select(`
-          cards (
+          position,
+          cards!inner (
             id,
             front_text,
             back_text,
@@ -46,19 +52,36 @@ export const CardStudy = ({ deckId, onComplete }: CardStudyProps) => {
           )
         `)
         .eq('deck_id', deckId)
-        .eq('user_id', user?.id)
-        .order('position');
+        .eq('user_id', user.id)
+        .order('position', { ascending: true });
 
-      if (error) throw error;
-
-      const cardData = data?.map(dc => dc.cards).filter(Boolean) || [];
-      setCards(cardData as StudyCard[]);
+      if (error) {
+        console.error('Error fetching deck cards:', error);
+        throw error;
+      }
+      
+      console.log('Fetched deck cards data:', data);
+      
+      // Transform the data to get the cards array
+      const studyCards = data?.map(item => ({
+        id: item.cards.id,
+        front_text: item.cards.front_text,
+        back_text: item.cards.back_text,
+        difficulty: item.cards.difficulty,
+        position: item.position
+      })) || [];
+      
+      console.log('Transformed study cards:', studyCards);
+      setCards(studyCards);
+      
     } catch (error: any) {
+      console.error('Error fetching cards:', error);
       toast({
-        title: "Failed to load cards",
-        description: error.message,
+        title: "Error",
+        description: "Failed to load study cards. Please try again.",
         variant: "destructive",
       });
+      setCards([]); // Set empty array to show "no cards" message
     } finally {
       setLoading(false);
     }

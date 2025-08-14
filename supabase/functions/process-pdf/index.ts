@@ -56,26 +56,35 @@ serve(async (req) => {
       throw new Error('Failed to download file');
     }
 
-    // For demo purposes, we'll extract text from the PDF using a simplified approach
-    // In production, you would use a proper PDF parsing library
-    let extractedText;
+    console.log('Extracting text from PDF...');
+    
+    let extractedText = '';
     
     try {
       // Try to read as text first (works for text-based PDFs)
-      extractedText = await fileData.text();
-    } catch {
-      // Fallback for binary PDFs - in production you'd use pdf-parse or similar
-      const buffer = await fileData.arrayBuffer();
-      const uint8Array = new Uint8Array(buffer);
-      // Simple text extraction - in production use proper PDF parsing
-      extractedText = new TextDecoder().decode(uint8Array).replace(/[^\x20-\x7E]/g, ' ');
+      const textContent = await fileData.text();
+      extractedText = sanitizeText(textContent);
+      console.log('Extracted text using text() method');
+    } catch (textError) {
+      console.log('Text extraction failed, trying buffer method:', textError.message);
+      
+      try {
+        // Fallback for binary PDFs
+        const buffer = await fileData.arrayBuffer();
+        extractedText = extractTextFromPdfBuffer(buffer);
+        console.log('Extracted text using buffer method');
+      } catch (bufferError) {
+        console.error('Both text extraction methods failed:', bufferError.message);
+        // Use filename as fallback content
+        extractedText = sanitizeText(`Document: ${source.title}`);
+      }
     }
     
-    // Clean up the extracted text
-    extractedText = extractedText
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 50000); // Limit text length for demo
+    if (!extractedText || extractedText.trim().length === 0) {
+      extractedText = sanitizeText(`Document: ${source.title} - Content could not be extracted`);
+    }
+    
+    console.log('Final extracted text length:', extractedText.length);
     
     // Create document
     const { data: document, error: docError } = await supabaseClient

@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { sanitizeForJson } from "../_shared/text-sanitizer.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,40 +60,65 @@ serve(async (req) => {
 
     const documentIds = deckDocuments?.map(dd => dd.document_id) || [];
     
-    // Get all chunks for these documents
+    // Get all chunks for the documents in this deck
+    console.log('Fetching chunks for', documentIds.length, 'documents...');
+    
     const { data: chunks, error: chunksError } = await supabaseClient
       .from('chunks')
       .select('*')
       .in('document_id', documentIds)
-      .order('chunk_index');
+      .eq('user_id', deck.user_id)
+      .order('chunk_index', { ascending: true });
 
     if (chunksError) {
+      console.error('Error fetching chunks:', chunksError);
+      
+      // Update deck status to failed
+      await supabaseClient
+        .from('decks')
+        .update({ status: 'failed' })
+        .eq('id', deckId);
+        
       throw new Error('Failed to fetch chunks');
     }
 
     if (!chunks || chunks.length === 0) {
-      throw new Error('No chunks found for this deck');
+      console.log('No chunks found for deck');
+      
+      // Update deck status to completed anyway
+      await supabaseClient
+        .from('decks')
+        .update({ status: 'completed' })
+        .eq('id', deckId);
+        
+      return new Response(JSON.stringify({ 
+        success: true, 
+        message: 'No content to generate cards from',
+        cardsGenerated: 0 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
+    
+    console.log('Found', chunks.length, 'chunks to process');
 
     const cards = [];
 
     // Generate cards from chunks
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      
+      // Validate and sanitize chunk content
+      const sanitizedContent = sanitizeForJson(chunk.content);
+      
+      if (sanitizedContent.trim().length < 20) {
+        console.log('Skipping chunk', i, '- content too short');
+        continue;
+      }
+      
+      console.log('Generating cards for chunk', i + 1, 'of', chunks.length);
+      
       try {
-        const prompt = `Extract the most important factual information from this text and create exactly 2 learning cards. Each card should have:
-- Front: A clear, specific question or concept (max 1 line)
-- Back: A factual, concise answer (max 1 line)
-
-Text: "${chunk.content}"
-
-Format your response as JSON:
-{
-  "cards": [
-    {"front": "question 1", "back": "answer 1"},
-    {"front": "question 2", "back": "answer 2"}
-  ]
-}`;
-
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -104,47 +130,103 @@ Format your response as JSON:
             messages: [
               {
                 role: 'system',
-                content: 'You are an expert at creating concise, factual learning cards. Keep answers under 20 words each.'
+                content: `You are an expert at creating educational flashcards. Given a chunk of text, create 2-3 concise learning cards.
+                
+                Return your response as a JSON array of objects with this exact format:
+                [{"front": "Question or key concept", "back": "Answer or explanation"}]
+                
+                Guidelines:
+                - Make cards focused and specific
+                - Use clear, simple language
+                - Ensure the front side asks something answerable from the back
+                - Keep cards concise but informative
+                - Extract the most important concepts from the text
+                - If the text is unclear or corrupted, create a general card about the document topic`
               },
               {
                 role: 'user',
-                content: prompt
+                content: `Create learning cards from this text:\n\n${sanitizedContent}`
               }
             ],
-            temperature: 0.3,
-            max_tokens: 500,
+            temperature: 0.7,
+            max_tokens: 500
           }),
         });
 
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        
-        try {
-          const parsedCards = JSON.parse(content);
+        if (!response.ok) {
+          console.error('OpenAI API error:', response.status, response.statusText);
           
-          for (const cardData of parsedCards.cards) {
-            cards.push({
-              user_id: deck.user_id,
-              chunk_id: chunk.id,
-              front_text: cardData.front.substring(0, 255), // Ensure it fits DB constraint
-              back_text: cardData.back.substring(0, 255),
-              difficulty: 'medium'
-            });
-          }
-        } catch (parseError) {
-          console.error('Failed to parse card generation response:', parseError);
-          // Fallback: create a simple card from the chunk
+          // Create fallback card for failed API calls
           cards.push({
             user_id: deck.user_id,
             chunk_id: chunk.id,
-            front_text: 'What is the main concept in this text?',
-            back_text: chunk.content.substring(0, 100) + '...',
+            front_text: `Content from ${deck.title} - Chunk ${i + 1}`,
+            back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
+            difficulty: 'medium'
+          });
+          continue;
+        }
+
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content;
+
+        if (!content) {
+          console.error('No content in OpenAI response');
+          
+          // Create fallback card
+          cards.push({
+            user_id: deck.user_id,
+            chunk_id: chunk.id,
+            front_text: `Key concept from ${deck.title}`,
+            back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
+            difficulty: 'medium'
+          });
+          continue;
+        }
+
+        try {
+          const parsedCards = JSON.parse(content);
+          
+          if (Array.isArray(parsedCards)) {
+            for (const card of parsedCards) {
+              if (card.front && card.back) {
+                cards.push({
+                  user_id: deck.user_id,
+                  chunk_id: chunk.id,
+                  front_text: sanitizeForJson(card.front).substring(0, 500),
+                  back_text: sanitizeForJson(card.back).substring(0, 500),
+                  difficulty: 'medium'
+                });
+              }
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing OpenAI response:', parseError, 'Content:', content);
+          
+          // Try to extract usable content or create fallback
+          const fallbackFront = `Key concept from ${deck.title}`;
+          const fallbackBack = sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : '');
+          
+          cards.push({
+            user_id: deck.user_id,
+            chunk_id: chunk.id,
+            front_text: fallbackFront,
+            back_text: fallbackBack,
             difficulty: 'medium'
           });
         }
 
       } catch (cardError) {
         console.error('Failed to generate cards for chunk:', chunk.id, cardError);
+        
+        // Create fallback card even for complete failures
+        cards.push({
+          user_id: deck.user_id,
+          chunk_id: chunk.id,
+          front_text: `Content from document`,
+          back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
+          difficulty: 'medium'
+        });
       }
     }
 

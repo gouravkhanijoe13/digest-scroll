@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { sanitizeText } from "../_shared/text-sanitizer.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -47,39 +48,75 @@ serve(async (req) => {
       .update({ status: 'processing' })
       .eq('id', sourceId);
 
-    // Fetch URL content
-    const urlResponse = await fetch(source.url);
-    if (!urlResponse.ok) {
-      throw new Error(`Failed to fetch URL: ${urlResponse.statusText}`);
-    }
-
-    const htmlContent = await urlResponse.text();
+    // Fetch and extract text from URL
+    console.log('Fetching URL content...');
     
-    // Simple text extraction (remove HTML tags)
-    const extractedText = htmlContent
-      .replace(/<script[^>]*>.*?<\/script>/gis, '')
-      .replace(/<style[^>]*>.*?<\/style>/gis, '')
-      .replace(/<[^>]*>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const response = await fetch(source.url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    console.log('Fetched HTML content length:', html.length);
+    
+    // Robust HTML text extraction
+    let extractedText = html
+      // Remove script and style elements completely
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+      // Remove HTML comments
+      .replace(/<!--[\s\S]*?-->/g, '')
+      // Remove all HTML tags
+      .replace(/<[^>]+>/g, ' ')
+      // Decode HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&[a-zA-Z0-9]+;/g, ' ');
+    
+    // Apply comprehensive text sanitization
+    extractedText = sanitizeText(extractedText);
+    
+    if (!extractedText || extractedText.trim().length === 0) {
+      extractedText = sanitizeText(`URL Content: ${source.title} - Content could not be extracted`);
+    }
+    
+    console.log('Final extracted text length:', extractedText.length);
 
-    // Create document
+    // Create document with transaction safety
+    console.log('Creating document record...');
+    
     const { data: document, error: docError } = await supabaseClient
       .from('documents')
       .insert({
         source_id: sourceId,
         user_id: source.user_id,
-        title: source.title,
+        title: sanitizeText(source.title),
+        content: extractedText,
         extracted_text: extractedText,
-        token_count: Math.ceil(extractedText.length / 4),
+        token_count: extractedText.split(' ').filter(word => word.length > 0).length,
         status: 'processing'
       })
       .select()
       .single();
 
     if (docError || !document) {
-      throw new Error('Failed to create document');
+      console.error('Error creating document:', docError);
+      
+      // Update source status to failed
+      await supabaseClient
+        .from('sources')
+        .update({ status: 'failed' })
+        .eq('id', sourceId);
+        
+      throw new Error(`Failed to create document: ${docError?.message || 'Unknown error'}`);
     }
+    
+    console.log('Document created successfully:', document.id);
 
     // Chunk the text
     const chunkSize = 350; // tokens
