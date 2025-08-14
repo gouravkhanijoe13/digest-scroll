@@ -188,7 +188,51 @@ serve(async (req) => {
       }
     }
 
-    // Update statuses to completed
+    // create a deck for this document
+    const { data: deck, error: deckErr } = await supabaseClient
+      .from("decks")
+      .insert({ 
+        user_id: source.user_id, 
+        title: source.title ?? "Auto Deck", 
+        status: "processing" 
+      })
+      .select()
+      .single();
+    if (deckErr) throw new Error(`Failed to create deck: ${deckErr.message}`);
+
+    // link deck to document (table exists)
+    await supabaseClient.from("deck_documents").insert({
+      user_id: source.user_id, 
+      deck_id: deck.id, 
+      document_id: document.id
+    });
+
+    console.log('URL processing completed, triggering card generation...');
+
+    // Call generate-cards edge function with deckId
+    let cardGenSuccess = false;
+    try {
+      const genRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cards`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+        },
+        body: JSON.stringify({ deckId: deck.id })
+      });
+      
+      if (genRes.ok) {
+        const result = await genRes.json();
+        console.log('Card generation completed:', result);
+        cardGenSuccess = true;
+      } else {
+        console.error("generate-cards failed:", await genRes.text());
+      }
+    } catch (generateError) {
+      console.error('Error calling generate-cards:', generateError);
+    }
+
+    // Update statuses to completed only after successful generation
     await Promise.all([
       supabaseClient
         .from('sources')
@@ -197,7 +241,11 @@ serve(async (req) => {
       supabaseClient
         .from('documents')
         .update({ status: 'completed' })
-        .eq('id', document.id)
+        .eq('id', document.id),
+      supabaseClient
+        .from('decks')
+        .update({ status: cardGenSuccess ? 'completed' : 'failed' })
+        .eq('id', deck.id)
     ]);
 
     console.log('URL processing completed successfully');

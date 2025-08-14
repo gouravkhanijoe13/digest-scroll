@@ -1,15 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { CardStudy } from '@/components/study/CardStudy';
+import { SwipeDeck } from '@/components/deck/SwipeDeck';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 
 export const Study = () => {
   const { deckId } = useParams<{ deckId: string }>();
   const navigate = useNavigate();
-
-  const handleComplete = () => {
-    navigate('/dashboard/documents');
-  };
 
   const handleBack = () => {
     navigate('/dashboard/documents');
@@ -30,26 +26,15 @@ export const Study = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <Button variant="ghost" onClick={handleBack}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Documents
-          </Button>
-        </div>
-
-        <div className="space-y-6">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold tracking-tight">Study Session</h1>
-            <p className="text-muted-foreground">
-              Review your cards and track your progress
-            </p>
-          </div>
-
-          <CardStudy deckId={deckId} onComplete={handleComplete} />
-        </div>
+    <div className="relative min-h-screen bg-background">
+      <div className="absolute top-4 left-4 z-10">
+        <Button variant="ghost" onClick={handleBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
+        </Button>
       </div>
+
+      <SwipeDeck deckId={deckId} />
     </div>
   );
 };

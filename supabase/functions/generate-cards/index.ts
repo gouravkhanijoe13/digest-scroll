@@ -24,30 +24,41 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const { userId, documentId, mode = 'learn', maxCards = 12 } = await req.json();
-    if (!userId || !documentId) {
-      throw new Error('userId and documentId are required');
+    const { deckId, maxCards = 15 } = await req.json();
+    if (!deckId) {
+      throw new Error('deckId is required');
     }
 
-    console.log('Generating cards for document:', documentId, 'user:', userId);
+    console.log('Generating cards for deck:', deckId);
 
-    // Get document details
-    const { data: document, error: docError } = await supabaseClient
-      .from('documents')
-      .select('title')
-      .eq('id', documentId)
+    // Get deck details and linked documents
+    const { data: deck, error: deckError } = await supabaseClient
+      .from('decks')
+      .select(`
+        id, user_id, title,
+        deck_documents!inner(
+          document_id,
+          documents!inner(id, title)
+        )
+      `)
+      .eq('id', deckId)
       .single();
 
-    if (docError || !document) {
-      throw new Error('Document not found');
+    if (deckError || !deck) {
+      throw new Error('Deck not found');
     }
 
-    // Get ordered chunks for the document (limit to ~60, slice to ~16k chars)
+    const documentIds = deck.deck_documents.map(dd => dd.document_id);
+    if (documentIds.length === 0) {
+      throw new Error('No documents linked to deck');
+    }
+
+    // Get ordered chunks for the linked documents (limit to ~60, slice to ~16k chars)
     const { data: chunks, error: chunksError } = await supabaseClient
       .from('chunks')
       .select('id, content')
-      .eq('document_id', documentId)
-      .eq('user_id', userId)
+      .in('document_id', documentIds)
+      .eq('user_id', deck.user_id)
       .order('chunk_index', { ascending: true })
       .limit(60);
 
@@ -88,22 +99,10 @@ serve(async (req) => {
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           messages: [
-            {
-              role: 'system',
-              content: `You are an expert at creating educational flashcards. Generate exactly ${maxCards} learning cards from the provided text.
-
-Return your response as a JSON array with this EXACT format:
-[{"text": "line1\\nline2"}, {"text": "line1\\nline2"}]
-
-Rules:
-- Each "text" field must be exactly 2 lines separated by \\n
-- Each line must be ≤110 characters
-- Total text per card ≤220 characters
-- Line 1: Question or key concept
-- Line 2: Answer or explanation
-- Extract the most important concepts
-- Make cards clear and educational`
-            },
+             {
+               role: 'system',
+               content: `Return JSON array [{ "text": "line1\\nline2" }, ...]. Each text <= 220 chars, exactly TWO lines separated by ONE newline. No markdown, no quotes. Generate exactly ${maxCards} meaningful learning cards covering key concepts, important facts, and actionable insights from the provided content.`
+             },
             {
               role: 'user',
               content: `Create ${maxCards} learning cards from this text:\n\n${combinedText}`
@@ -145,38 +144,24 @@ Rules:
     // Fallback to stub cards if OpenAI failed
     if (cards.length === 0) {
       console.log('Creating fallback cards');
+      const docTitle = deck.deck_documents[0]?.documents?.title || 'Document';
       cards = [
-        { text: `Key concept from ${document.title}\nReview the document content for details` },
+        { text: `Key concept from ${docTitle}\nReview the document content for details` },
         { text: `Important information\nFound in the uploaded document` },
-        { text: `Learning point\nExtracted from the text content` }
+        { text: `Learning point\nExtracted from the text content` },
+        { text: `Main idea summary\nCore insights from the material` },
+        { text: `Study reminder\nCarefully review all sections` }
       ];
     }
 
     console.log('Generated', cards.length, 'cards');
 
-    // Create a new deck
-    const { data: deck, error: deckError } = await supabaseClient
-      .from('decks')
-      .insert({
-        user_id: userId,
-        title: `Auto Deck - ${document.title}`,
-        description: `Generated from ${document.title}`,
-        status: 'completed'
-      })
-      .select()
-      .single();
-
-    if (deckError || !deck) {
-      console.error('Failed to create deck:', deckError);
-      throw new Error('Failed to create deck');
-    }
-
-    // Insert cards
+    // Insert cards with front_text/back_text split
     const cardRows = cards.map((card, index) => {
       const lines = card.text.split('\n');
       return {
-        user_id: userId,
-        chunk_id: chunks[0].id, // Associate with first chunk
+        user_id: deck.user_id,
+        chunk_id: chunks[0]?.id || null, // Associate with first chunk
         front_text: lines[0] || 'Question',
         back_text: lines[1] || 'Answer',
         difficulty: 'medium'
@@ -193,26 +178,23 @@ Rules:
       throw new Error('Failed to insert cards');
     }
 
-    // Create deck_cards associations
+    // Create deck_cards associations with position
     const deckCards = insertedCards.map((card, index) => ({
       deck_id: deck.id,
       card_id: card.id,
-      user_id: userId,
-      position: index
+      user_id: deck.user_id,
+      position: index + 1
     }));
 
     await supabaseClient
       .from('deck_cards')
       .insert(deckCards);
 
-    // Link deck to document
+    // Update deck status to completed
     await supabaseClient
-      .from('deck_documents')
-      .insert({
-        user_id: userId,
-        deck_id: deck.id,
-        document_id: documentId
-      });
+      .from('decks')
+      .update({ status: 'completed' })
+      .eq('id', deck.id);
 
     console.log('Card generation completed successfully');
 

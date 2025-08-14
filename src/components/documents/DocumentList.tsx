@@ -103,7 +103,7 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
     }
   };
 
-  const createDeck = async (documentId: string) => {
+  const openDeck = async (documentId: string) => {
     try {
       // Find existing deck for this document
       const { data: existingDecks } = await supabase
@@ -241,10 +241,10 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
                 {doc.status === 'completed' && doc.cards.length > 0 && (
                   <Button
                     size="sm"
-                    onClick={() => createDeck(doc.id)}
+                    onClick={() => openDeck(doc.id)}
                   >
                     <Play className="h-4 w-4 mr-1" />
-                    Study
+                    Open Deck ({doc.cards.length} cards)
                   </Button>
                 )}
                 <Button
