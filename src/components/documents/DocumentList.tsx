@@ -35,14 +35,6 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
     }
   }, [user]);
 
-  const getChunkIds = async (documentId: string): Promise<string[]> => {
-    const { data } = await supabase
-      .from('chunks')
-      .select('id')
-      .eq('document_id', documentId);
-    return data?.map(c => c.id) || [];
-  };
-
   const fetchDocuments = async () => {
     try {
       const { data, error } = await supabase
@@ -63,19 +55,39 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
 
       if (error) throw error;
       
-      // Get card counts separately
+      // Get live card counts via deck relationships
       const documentsWithCards = await Promise.all(
         (data || []).map(async (doc) => {
-          const { count } = await supabase
-            .from('cards')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user?.id)
-            .in('chunk_id', await getChunkIds(doc.id));
-          
-          return {
-            ...doc,
-            cards: Array(count || 0).fill({ id: '' })
-          };
+          try {
+            // First get deck IDs for this document
+            const { data: deckIds } = await supabase
+              .from('deck_documents')
+              .select('deck_id')
+              .eq('document_id', doc.id)
+              .eq('user_id', user?.id);
+              
+            if (!deckIds || deckIds.length === 0) {
+              return { ...doc, cards: [] };
+            }
+            
+            // Then count cards in those decks
+            const { count: cardCount } = await supabase
+              .from('deck_cards')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', user?.id)
+              .in('deck_id', deckIds.map(d => d.deck_id));
+            
+            return {
+              ...doc,
+              cards: Array(cardCount || 0).fill({ id: '' })
+            };
+          } catch {
+            // Fallback: no cards found
+            return {
+              ...doc,
+              cards: []
+            };
+          }
         })
       );
       
@@ -93,47 +105,30 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
 
   const createDeck = async (documentId: string) => {
     try {
-      // Create a deck for this document
-      const { data: deck, error: deckError } = await supabase
-        .from('decks')
-        .insert({
-          user_id: user?.id,
-          title: `Learning Deck - ${documents.find(d => d.id === documentId)?.title}`,
-          description: 'Auto-generated learning deck',
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (deckError) throw deckError;
-
-      // Link deck to document
-      await supabase
+      // Find existing deck for this document
+      const { data: existingDecks } = await supabase
         .from('deck_documents')
-        .insert({
-          deck_id: deck.id,
-          document_id: documentId,
-          user_id: user?.id
-        });
+        .select('deck_id')
+        .eq('document_id', documentId)
+        .eq('user_id', user?.id)
+        .limit(1);
 
-      // Generate cards for the deck
-      const { error: generateError } = await supabase.functions.invoke('generate-cards', {
-        body: { deckId: deck.id }
-      });
+      if (existingDecks && existingDecks.length > 0) {
+        // Navigate to existing deck
+        window.location.href = `/study/${existingDecks[0].deck_id}`;
+        return;
+      }
 
-      if (generateError) throw generateError;
-
+      // If no deck exists, the card generation should have been triggered by process-pdf
       toast({
-        title: "Deck created",
-        description: "Your learning deck is being generated in the background.",
+        title: "Processing...",
+        description: "Cards are still being generated. Please wait a moment and refresh.",
+        variant: "default",
       });
-
-      // Navigate to study page
-      window.location.href = `/study/${deck.id}`;
 
     } catch (error: any) {
       toast({
-        title: "Failed to create deck",
+        title: "Failed to access deck",
         description: error.message,
         variant: "destructive",
       });

@@ -24,236 +24,180 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const { deckId } = await req.json();
-    if (!deckId) {
-      throw new Error('Deck ID is required');
+    const { userId, documentId, mode = 'learn', maxCards = 12 } = await req.json();
+    if (!userId || !documentId) {
+      throw new Error('userId and documentId are required');
     }
 
-    console.log('Generating cards for deck:', deckId);
+    console.log('Generating cards for document:', documentId, 'user:', userId);
 
-    // Get deck details
-    const { data: deck, error: deckError } = await supabaseClient
-      .from('decks')
-      .select('*')
-      .eq('id', deckId)
+    // Get document details
+    const { data: document, error: docError } = await supabaseClient
+      .from('documents')
+      .select('title')
+      .eq('id', documentId)
       .single();
 
-    if (deckError || !deck) {
-      throw new Error('Deck not found');
+    if (docError || !document) {
+      throw new Error('Document not found');
     }
 
-    // Update deck status to processing
-    await supabaseClient
-      .from('decks')
-      .update({ status: 'processing' })
-      .eq('id', deckId);
-
-    // Get deck's associated documents
-    const { data: deckDocuments, error: deckDocsError } = await supabaseClient
-      .from('deck_documents')
-      .select('document_id')
-      .eq('deck_id', deckId);
-
-    if (deckDocsError) {
-      throw new Error('Failed to fetch deck documents');
-    }
-
-    const documentIds = deckDocuments?.map(dd => dd.document_id) || [];
-    
-    // Get all chunks for the documents in this deck
-    console.log('Fetching chunks for', documentIds.length, 'documents...');
-    
+    // Get ordered chunks for the document (limit to ~60, slice to ~16k chars)
     const { data: chunks, error: chunksError } = await supabaseClient
       .from('chunks')
-      .select('*')
-      .in('document_id', documentIds)
-      .eq('user_id', deck.user_id)
-      .order('chunk_index', { ascending: true });
+      .select('id, content')
+      .eq('document_id', documentId)
+      .eq('user_id', userId)
+      .order('chunk_index', { ascending: true })
+      .limit(60);
 
     if (chunksError) {
       console.error('Error fetching chunks:', chunksError);
-      
-      // Update deck status to failed
-      await supabaseClient
-        .from('decks')
-        .update({ status: 'failed' })
-        .eq('id', deckId);
-        
       throw new Error('Failed to fetch chunks');
     }
 
     if (!chunks || chunks.length === 0) {
-      console.log('No chunks found for deck');
-      
-      // Update deck status to completed anyway
-      await supabaseClient
-        .from('decks')
-        .update({ status: 'completed' })
-        .eq('id', deckId);
-        
+      console.log('No chunks found for document');
       return new Response(JSON.stringify({ 
-        success: true, 
+        ok: false, 
         message: 'No content to generate cards from',
-        cardsGenerated: 0 
+        count: 0 
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    
-    console.log('Found', chunks.length, 'chunks to process');
 
-    const cards = [];
+    // Combine chunk content and slice to ~16k chars
+    const combinedText = chunks
+      .map(chunk => sanitizeForJson(chunk.content))
+      .join('\n\n')
+      .substring(0, 16000);
 
-    // Generate cards from chunks
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      
-      // Validate and sanitize chunk content
-      const sanitizedContent = sanitizeForJson(chunk.content);
-      
-      if (sanitizedContent.trim().length < 20) {
-        console.log('Skipping chunk', i, '- content too short');
-        continue;
+    console.log('Combined text length:', combinedText.length);
+
+    let cards = [];
+
+    // Call OpenAI to generate cards
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert at creating educational flashcards. Generate exactly ${maxCards} learning cards from the provided text.
+
+Return your response as a JSON array with this EXACT format:
+[{"text": "line1\\nline2"}, {"text": "line1\\nline2"}]
+
+Rules:
+- Each "text" field must be exactly 2 lines separated by \\n
+- Each line must be ≤110 characters
+- Total text per card ≤220 characters
+- Line 1: Question or key concept
+- Line 2: Answer or explanation
+- Extract the most important concepts
+- Make cards clear and educational`
+            },
+            {
+              role: 'user',
+              content: `Create ${maxCards} learning cards from this text:\n\n${combinedText}`
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('OpenAI API error:', response.status, response.statusText);
+        throw new Error('OpenAI API failed');
       }
-      
-      console.log('Generating cards for chunk', i + 1, 'of', chunks.length);
-      
-      try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAIApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: `You are an expert at creating educational flashcards. Given a chunk of text, create 2-3 concise learning cards.
-                
-                Return your response as a JSON array of objects with this exact format:
-                [{"front": "Question or key concept", "back": "Answer or explanation"}]
-                
-                Guidelines:
-                - Make cards focused and specific
-                - Use clear, simple language
-                - Ensure the front side asks something answerable from the back
-                - Keep cards concise but informative
-                - Extract the most important concepts from the text
-                - If the text is unclear or corrupted, create a general card about the document topic`
-              },
-              {
-                role: 'user',
-                content: `Create learning cards from this text:\n\n${sanitizedContent}`
-              }
-            ],
-            temperature: 0.7,
-            max_tokens: 500
-          }),
-        });
 
-        if (!response.ok) {
-          console.error('OpenAI API error:', response.status, response.statusText);
-          
-          // Create fallback card for failed API calls
-          cards.push({
-            user_id: deck.user_id,
-            chunk_id: chunk.id,
-            front_text: `Content from ${deck.title} - Chunk ${i + 1}`,
-            back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
-            difficulty: 'medium'
-          });
-          continue;
-        }
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
 
-        const data = await response.json();
-        const content = data.choices[0]?.message?.content;
-
-        if (!content) {
-          console.error('No content in OpenAI response');
-          
-          // Create fallback card
-          cards.push({
-            user_id: deck.user_id,
-            chunk_id: chunk.id,
-            front_text: `Key concept from ${deck.title}`,
-            back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
-            difficulty: 'medium'
-          });
-          continue;
-        }
-
+      if (content) {
         try {
           const parsedCards = JSON.parse(content);
           
           if (Array.isArray(parsedCards)) {
-            for (const card of parsedCards) {
-              if (card.front && card.back) {
-                cards.push({
-                  user_id: deck.user_id,
-                  chunk_id: chunk.id,
-                  front_text: sanitizeForJson(card.front).substring(0, 500),
-                  back_text: sanitizeForJson(card.back).substring(0, 500),
-                  difficulty: 'medium'
-                });
-              }
-            }
+            cards = parsedCards
+              .filter(card => card.text && card.text.includes('\n'))
+              .slice(0, maxCards)
+              .map(card => ({
+                text: sanitizeForJson(card.text).substring(0, 220)
+              }));
           }
         } catch (parseError) {
-          console.error('Error parsing OpenAI response:', parseError, 'Content:', content);
-          
-          // Try to extract usable content or create fallback
-          const fallbackFront = `Key concept from ${deck.title}`;
-          const fallbackBack = sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : '');
-          
-          cards.push({
-            user_id: deck.user_id,
-            chunk_id: chunk.id,
-            front_text: fallbackFront,
-            back_text: fallbackBack,
-            difficulty: 'medium'
-          });
+          console.error('Error parsing OpenAI response:', parseError);
         }
-
-      } catch (cardError) {
-        console.error('Failed to generate cards for chunk:', chunk.id, cardError);
-        
-        // Create fallback card even for complete failures
-        cards.push({
-          user_id: deck.user_id,
-          chunk_id: chunk.id,
-          front_text: `Content from document`,
-          back_text: sanitizedContent.substring(0, 200) + (sanitizedContent.length > 200 ? '...' : ''),
-          difficulty: 'medium'
-        });
       }
+    } catch (openaiError) {
+      console.error('OpenAI API call failed:', openaiError);
     }
 
-    // Insert cards in batches
-    const batchSize = 10;
-    const insertedCards = [];
+    // Fallback to stub cards if OpenAI failed
+    if (cards.length === 0) {
+      console.log('Creating fallback cards');
+      cards = [
+        { text: `Key concept from ${document.title}\nReview the document content for details` },
+        { text: `Important information\nFound in the uploaded document` },
+        { text: `Learning point\nExtracted from the text content` }
+      ];
+    }
 
-    for (let i = 0; i < cards.length; i += batchSize) {
-      const batch = cards.slice(i, i + batchSize);
-      
-      const { data: batchCards, error: insertError } = await supabaseClient
-        .from('cards')
-        .insert(batch)
-        .select();
+    console.log('Generated', cards.length, 'cards');
 
-      if (insertError) {
-        console.error('Failed to insert cards batch:', insertError);
-      } else {
-        insertedCards.push(...batchCards);
-      }
+    // Create a new deck
+    const { data: deck, error: deckError } = await supabaseClient
+      .from('decks')
+      .insert({
+        user_id: userId,
+        title: `Auto Deck - ${document.title}`,
+        description: `Generated from ${document.title}`,
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (deckError || !deck) {
+      console.error('Failed to create deck:', deckError);
+      throw new Error('Failed to create deck');
+    }
+
+    // Insert cards
+    const cardRows = cards.map((card, index) => {
+      const lines = card.text.split('\n');
+      return {
+        user_id: userId,
+        chunk_id: chunks[0].id, // Associate with first chunk
+        front_text: lines[0] || 'Question',
+        back_text: lines[1] || 'Answer',
+        difficulty: 'medium'
+      };
+    });
+
+    const { data: insertedCards, error: cardsError } = await supabaseClient
+      .from('cards')
+      .insert(cardRows)
+      .select();
+
+    if (cardsError) {
+      console.error('Failed to insert cards:', cardsError);
+      throw new Error('Failed to insert cards');
     }
 
     // Create deck_cards associations
     const deckCards = insertedCards.map((card, index) => ({
-      deck_id: deckId,
+      deck_id: deck.id,
       card_id: card.id,
-      user_id: deck.user_id,
+      user_id: userId,
       position: index
     }));
 
@@ -261,19 +205,22 @@ serve(async (req) => {
       .from('deck_cards')
       .insert(deckCards);
 
-    // Update deck status to completed
+    // Link deck to document
     await supabaseClient
-      .from('decks')
-      .update({ status: 'completed' })
-      .eq('id', deckId);
+      .from('deck_documents')
+      .insert({
+        user_id: userId,
+        deck_id: deck.id,
+        document_id: documentId
+      });
 
     console.log('Card generation completed successfully');
 
     return new Response(
       JSON.stringify({
-        success: true,
-        cardsGenerated: insertedCards.length,
-        deckId: deckId
+        ok: true,
+        deckId: deck.id,
+        count: insertedCards.length
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -281,7 +228,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error generating cards:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ ok: false, error: error.message }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

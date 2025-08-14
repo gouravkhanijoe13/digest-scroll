@@ -187,6 +187,34 @@ serve(async (req) => {
         .eq('id', document.id)
     ]);
 
+    console.log('PDF processing completed, triggering card generation...');
+
+    // Call generate-cards edge function
+    try {
+      const generateCardsResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-cards`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: source.user_id,
+          documentId: document.id,
+          mode: 'learn',
+          maxCards: 12
+        }),
+      });
+
+      if (!generateCardsResponse.ok) {
+        console.error('Failed to call generate-cards:', generateCardsResponse.status);
+      } else {
+        const generateResult = await generateCardsResponse.json();
+        console.log('Card generation triggered:', generateResult);
+      }
+    } catch (generateError) {
+      console.error('Error calling generate-cards:', generateError);
+    }
+
     console.log('PDF processing completed successfully');
 
     return new Response(
