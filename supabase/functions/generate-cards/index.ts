@@ -47,18 +47,23 @@ serve(async (req) => {
       .update({ status: 'processing' })
       .eq('id', deckId);
 
-    // Get all chunks for documents in this deck
+    // Get deck's associated documents
+    const { data: deckDocuments, error: deckDocsError } = await supabaseClient
+      .from('deck_documents')
+      .select('document_id')
+      .eq('deck_id', deckId);
+
+    if (deckDocsError) {
+      throw new Error('Failed to fetch deck documents');
+    }
+
+    const documentIds = deckDocuments?.map(dd => dd.document_id) || [];
+    
+    // Get all chunks for these documents
     const { data: chunks, error: chunksError } = await supabaseClient
       .from('chunks')
-      .select(`
-        *,
-        documents!inner(
-          sources!inner(
-            decks!inner(id)
-          )
-        )
-      `)
-      .eq('documents.sources.decks.id', deckId)
+      .select('*')
+      .in('document_id', documentIds)
       .order('chunk_index');
 
     if (chunksError) {

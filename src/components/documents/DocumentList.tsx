@@ -91,6 +91,46 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
     }
   };
 
+  const createDeck = async (documentId: string) => {
+    try {
+      // Create a deck for this document
+      const { data: deck, error: deckError } = await supabase
+        .from('decks')
+        .insert({
+          user_id: user?.id,
+          title: `Learning Deck - ${documents.find(d => d.id === documentId)?.title}`,
+          description: 'Auto-generated learning deck',
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (deckError) throw deckError;
+
+      // Generate cards for the deck
+      const { error: generateError } = await supabase.functions.invoke('generate-cards', {
+        body: { deckId: deck.id }
+      });
+
+      if (generateError) throw generateError;
+
+      toast({
+        title: "Deck created",
+        description: "Your learning deck is being generated in the background.",
+      });
+
+      // Navigate to study page
+      window.location.href = `/study/${deck.id}`;
+
+    } catch (error: any) {
+      toast({
+        title: "Failed to create deck",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const deleteDocument = async (documentId: string) => {
     try {
       const { error } = await supabase
@@ -197,7 +237,7 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
                 {doc.status === 'completed' && doc.cards.length > 0 && (
                   <Button
                     size="sm"
-                    onClick={() => onCreateDeck?.(doc.id)}
+                    onClick={() => createDeck(doc.id)}
                   >
                     <Play className="h-4 w-4 mr-1" />
                     Study
