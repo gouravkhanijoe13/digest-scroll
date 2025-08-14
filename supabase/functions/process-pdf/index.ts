@@ -56,8 +56,26 @@ serve(async (req) => {
       throw new Error('Failed to download file');
     }
 
-    // Simple text extraction (for demo - in production would use PDF parser)
-    const extractedText = await fileData.text();
+    // For demo purposes, we'll extract text from the PDF using a simplified approach
+    // In production, you would use a proper PDF parsing library
+    let extractedText;
+    
+    try {
+      // Try to read as text first (works for text-based PDFs)
+      extractedText = await fileData.text();
+    } catch {
+      // Fallback for binary PDFs - in production you'd use pdf-parse or similar
+      const buffer = await fileData.arrayBuffer();
+      const uint8Array = new Uint8Array(buffer);
+      // Simple text extraction - in production use proper PDF parsing
+      extractedText = new TextDecoder().decode(uint8Array).replace(/[^\x20-\x7E]/g, ' ');
+    }
+    
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 50000); // Limit text length for demo
     
     // Create document
     const { data: document, error: docError } = await supabaseClient

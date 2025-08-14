@@ -195,6 +195,30 @@ export type Database = {
           },
         ]
       }
+      deck_documents: {
+        Row: {
+          added_at: string | null
+          deck_id: string
+          document_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          deck_id: string
+          document_id: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          added_at?: string | null
+          deck_id?: string
+          document_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       decks: {
         Row: {
           created_at: string | null

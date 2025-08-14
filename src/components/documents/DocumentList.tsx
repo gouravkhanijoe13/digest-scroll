@@ -107,6 +107,15 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
 
       if (deckError) throw deckError;
 
+      // Link deck to document
+      await supabase
+        .from('deck_documents')
+        .insert({
+          deck_id: deck.id,
+          document_id: documentId,
+          user_id: user?.id
+        });
+
       // Generate cards for the deck
       const { error: generateError } = await supabase.functions.invoke('generate-cards', {
         body: { deckId: deck.id }
