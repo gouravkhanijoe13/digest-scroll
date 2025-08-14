@@ -14,7 +14,397 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      branches: {
+        Row: {
+          created_at: string | null
+          edge_type: Database["public"]["Enums"]["edge_type"] | null
+          from_card_id: string
+          id: string
+          metadata: Json | null
+          strength: number | null
+          to_card_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          edge_type?: Database["public"]["Enums"]["edge_type"] | null
+          from_card_id: string
+          id?: string
+          metadata?: Json | null
+          strength?: number | null
+          to_card_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          edge_type?: Database["public"]["Enums"]["edge_type"] | null
+          from_card_id?: string
+          id?: string
+          metadata?: Json | null
+          strength?: number | null
+          to_card_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "branches_from_card_id_fkey"
+            columns: ["from_card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "branches_to_card_id_fkey"
+            columns: ["to_card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cards: {
+        Row: {
+          back_text: string
+          chunk_id: string
+          created_at: string | null
+          difficulty: Database["public"]["Enums"]["card_difficulty"] | null
+          front_text: string
+          id: string
+          metadata: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          back_text: string
+          chunk_id: string
+          created_at?: string | null
+          difficulty?: Database["public"]["Enums"]["card_difficulty"] | null
+          front_text: string
+          id?: string
+          metadata?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          back_text?: string
+          chunk_id?: string
+          created_at?: string | null
+          difficulty?: Database["public"]["Enums"]["card_difficulty"] | null
+          front_text?: string
+          id?: string
+          metadata?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cards_chunk_id_fkey"
+            columns: ["chunk_id"]
+            isOneToOne: false
+            referencedRelation: "chunks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          created_at: string | null
+          document_id: string
+          end_char: number | null
+          id: string
+          metadata: Json | null
+          start_char: number | null
+          token_count: number
+          user_id: string
+        }
+        Insert: {
+          chunk_index: number
+          content: string
+          created_at?: string | null
+          document_id: string
+          end_char?: number | null
+          id?: string
+          metadata?: Json | null
+          start_char?: number | null
+          token_count: number
+          user_id: string
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          created_at?: string | null
+          document_id?: string
+          end_char?: number | null
+          id?: string
+          metadata?: Json | null
+          start_char?: number | null
+          token_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deck_cards: {
+        Row: {
+          added_at: string | null
+          card_id: string
+          deck_id: string
+          id: string
+          position: number
+          user_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          card_id: string
+          deck_id: string
+          id?: string
+          position: number
+          user_id: string
+        }
+        Update: {
+          added_at?: string | null
+          card_id?: string
+          deck_id?: string
+          id?: string
+          position?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_cards_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deck_cards_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      decks: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          settings: Json | null
+          status: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          settings?: Json | null
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          settings?: Json | null
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      documents: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          extracted_text: string | null
+          id: string
+          metadata: Json | null
+          source_id: string
+          status: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          token_count: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          extracted_text?: string | null
+          id?: string
+          metadata?: Json | null
+          source_id: string
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          token_count?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          extracted_text?: string | null
+          id?: string
+          metadata?: Json | null
+          source_id?: string
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title?: string
+          token_count?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      embeddings: {
+        Row: {
+          chunk_id: string
+          created_at: string | null
+          embedding: string
+          id: string
+          model_used: string | null
+          user_id: string
+        }
+        Insert: {
+          chunk_id: string
+          created_at?: string | null
+          embedding: string
+          id?: string
+          model_used?: string | null
+          user_id: string
+        }
+        Update: {
+          chunk_id?: string
+          created_at?: string | null
+          embedding?: string
+          id?: string
+          model_used?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "embeddings_chunk_id_fkey"
+            columns: ["chunk_id"]
+            isOneToOne: true
+            referencedRelation: "chunks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sources: {
+        Row: {
+          content_type: Database["public"]["Enums"]["content_type"]
+          created_at: string | null
+          file_path: string | null
+          file_size: number | null
+          id: string
+          metadata: Json | null
+          status: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          updated_at: string | null
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          content_type: Database["public"]["Enums"]["content_type"]
+          created_at?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          metadata?: Json | null
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title: string
+          updated_at?: string | null
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          content_type?: Database["public"]["Enums"]["content_type"]
+          created_at?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          metadata?: Json | null
+          status?: Database["public"]["Enums"]["processing_status"] | null
+          title?: string
+          updated_at?: string | null
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_progress: {
+        Row: {
+          card_id: string
+          correct_count: number | null
+          created_at: string | null
+          ease_factor: number | null
+          id: string
+          interval_days: number | null
+          last_reviewed: string | null
+          next_review: string | null
+          reviews: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          correct_count?: number | null
+          created_at?: string | null
+          ease_factor?: number | null
+          id?: string
+          interval_days?: number | null
+          last_reviewed?: string | null
+          next_review?: string | null
+          reviews?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          correct_count?: number | null
+          created_at?: string | null
+          ease_factor?: number | null
+          id?: string
+          interval_days?: number | null
+          last_reviewed?: string | null
+          next_review?: string | null
+          reviews?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_progress_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +413,10 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      card_difficulty: "easy" | "medium" | "hard"
+      content_type: "pdf" | "html" | "markdown" | "txt" | "url"
+      edge_type: "related" | "follows" | "contradicts" | "elaborates"
+      processing_status: "pending" | "processing" | "completed" | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +543,11 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      card_difficulty: ["easy", "medium", "hard"],
+      content_type: ["pdf", "html", "markdown", "txt", "url"],
+      edge_type: ["related", "follows", "contradicts", "elaborates"],
+      processing_status: ["pending", "processing", "completed", "failed"],
+    },
   },
 } as const
