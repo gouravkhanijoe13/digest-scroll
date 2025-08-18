@@ -31,13 +31,18 @@ jobs:
           echo "SUPABASE_URL=$EXTERNAL_URL" >> $GITHUB_ENV
           echo "ref=$PROJECT_REF" >> $GITHUB_OUTPUT
 
-      - name: Deploy functions
-        run: supabase functions deploy --project-ref "$PROJECT_REF"
+      - name: Deploy functions (use API bundling so code appears in dashboard)
+        run: supabase functions deploy --project-ref "$PROJECT_REF" --use-api
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Test deployment
         run: |
           echo "Testing edge function deployment..."
-          # Health check: OPTIONS to a known function should return 200 (CORS preflight)
-          curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS "$SUPABASE_URL/functions/v1/generate-cards" | grep -q "^200$"
+          # Functional check: POST without body should return 500 with 'deckId is required'
+          STATUS_AND_BODY=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d '{}' "$SUPABASE_URL/functions/v1/generate-cards")
+          BODY=$(echo "$STATUS_AND_BODY" | head -n1)
+          STATUS=$(echo "$STATUS_AND_BODY" | tail -n1)
+          echo "Status: $STATUS"
+          echo "Body: $BODY"
+          echo "$BODY" | grep -q "deckId is required"
