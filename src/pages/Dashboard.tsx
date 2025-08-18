@@ -5,14 +5,21 @@ import { AppSidebar } from '@/components/layout/AppSidebar';
 import { FileUpload } from '@/components/upload/FileUpload';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { KnowledgeGraph } from '@/components/graph/KnowledgeGraph';
+import { WorkflowProgress } from '@/components/workflow/WorkflowProgress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, FileText } from 'lucide-react';
 
 const DashboardHome = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [processingSourceId, setProcessingSourceId] = useState<string>('');
 
-  const handleUploadComplete = () => {
+  const handleUploadComplete = (sourceId: string) => {
+    setProcessingSourceId(sourceId);
+  };
+
+  const handleWorkflowComplete = (deckId: string) => {
+    setProcessingSourceId('');
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -38,17 +45,24 @@ const DashboardHome = () => {
         </TabsList>
 
         <TabsContent value="upload" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Add Learning Material</CardTitle>
-              <CardDescription>
-                Upload PDFs or add URLs to automatically generate learning cards
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FileUpload onUploadComplete={handleUploadComplete} />
-            </CardContent>
-          </Card>
+          {processingSourceId ? (
+            <WorkflowProgress 
+              sourceId={processingSourceId} 
+              onComplete={handleWorkflowComplete}
+            />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Add Learning Material</CardTitle>
+                <CardDescription>
+                  Upload PDFs or add URLs to automatically generate learning cards
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FileUpload onUploadComplete={handleUploadComplete} />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="documents" className="space-y-4">

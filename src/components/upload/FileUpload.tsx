@@ -80,7 +80,7 @@ export const FileUpload = ({ onUploadComplete }: FileUploadProps) => {
 
       toast({
         title: "Upload successful",
-        description: "Your PDF is being processed in the background.",
+        description: "Your document is being analyzed and processed.",
       });
 
       onUploadComplete?.(source.id);
@@ -147,7 +147,7 @@ export const FileUpload = ({ onUploadComplete }: FileUploadProps) => {
 
       toast({
         title: "URL added successfully",
-        description: "The webpage is being processed in the background.",
+        description: "The content is being analyzed and processed.",
       });
 
       setUrlInput('');

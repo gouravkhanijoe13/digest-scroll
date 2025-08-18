@@ -207,6 +207,27 @@ serve(async (req) => {
       document_id: document.id
     });
 
+    console.log('Starting document categorization...');
+    
+    // Call categorize-document edge function
+    try {
+      const catRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/categorize-document`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+        },
+        body: JSON.stringify({ documentId: document.id })
+      });
+      
+      if (catRes.ok) {
+        const catResult = await catRes.json();
+        console.log('Document categorization completed:', catResult.category);
+      }
+    } catch (catError) {
+      console.error('Error categorizing document:', catError);
+    }
+
     console.log('URL processing completed, triggering card generation...');
 
     // Call generate-cards edge function with deckId

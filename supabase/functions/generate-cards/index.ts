@@ -24,21 +24,21 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const { deckId, maxCards = 15 } = await req.json();
+    const { deckId, maxCards = 25 } = await req.json();
     if (!deckId) {
       throw new Error('deckId is required');
     }
 
     console.log('Generating cards for deck:', deckId);
 
-    // Get deck details and linked documents
+    // Get deck details and linked documents with metadata
     const { data: deck, error: deckError } = await supabaseClient
       .from('decks')
       .select(`
         id, user_id, title,
         deck_documents!inner(
           document_id,
-          documents!inner(id, title)
+          documents!inner(id, title, metadata)
         )
       `)
       .eq('id', deckId)
@@ -88,6 +88,45 @@ serve(async (req) => {
 
     let cards = [];
 
+    // Get document category for specialized card generation
+    const category = deck.deck_documents[0]?.documents?.metadata?.category || 'educational_content';
+    console.log('Document category:', category);
+
+    // Category-specific prompts and card counts
+    const categoryStrategies: Record<string, { prompt: string; count: number }> = {
+      'technical_document': {
+        prompt: 'Generate technical learning cards focusing on: key concepts with definitions, code examples with explanations, implementation steps, best practices, common pitfalls, and practical applications.',
+        count: 30
+      },
+      'book_chapter': {
+        prompt: 'Create book summary cards with: key themes and ideas, important quotes with context, character insights, plot points, lessons learned, and actionable takeaways.',
+        count: 25
+      },
+      'research_paper': {
+        prompt: 'Develop research-focused cards covering: methodology explanation, key findings, statistical insights, implications, limitations, and future research directions.',
+        count: 20
+      },
+      'blog_article': {
+        prompt: 'Generate article digest cards with: main arguments, supporting evidence, practical tips, real-world examples, author insights, and actionable advice.',
+        count: 15
+      },
+      'motivational_content': {
+        prompt: 'Create inspirational cards featuring: key principles, motivational quotes, success strategies, mindset shifts, personal development tips, and action steps.',
+        count: 20
+      },
+      'business_document': {
+        prompt: 'Develop business-oriented cards with: strategic insights, key metrics, process steps, decision frameworks, risk factors, and implementation guidelines.',
+        count: 25
+      }
+    };
+
+    const strategy = categoryStrategies[category] || categoryStrategies['educational_content'] || {
+      prompt: 'Generate educational cards with key concepts, explanations, examples, and practical applications.',
+      count: 20
+    };
+
+    const targetCards = Math.min(strategy.count, maxCards);
+
     // Call OpenAI to generate cards
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -101,15 +140,19 @@ serve(async (req) => {
           messages: [
              {
                role: 'system',
-               content: `Return JSON array [{ "text": "line1\\nline2" }, ...]. Each text <= 220 chars, exactly TWO lines separated by ONE newline. No markdown, no quotes. Generate exactly ${maxCards} meaningful learning cards covering key concepts, important facts, and actionable insights from the provided content.`
+               content: `You are creating digestible learning cards for a ${category.replace('_', ' ')}. Return JSON array [{ "text": "line1\\nline2" }, ...]. Each text <= 220 chars, exactly TWO lines separated by ONE newline. No markdown, no quotes.
+
+${strategy.prompt}
+
+Build cards that progress logically from basic concepts to advanced applications. Each card should be self-contained but connect to others for comprehensive understanding. Generate exactly ${targetCards} cards.`
              },
             {
               role: 'user',
-              content: `Create ${maxCards} learning cards from this text:\n\n${combinedText}`
+              content: `Create ${targetCards} progressive learning cards for this ${category.replace('_', ' ')}:\n\n${combinedText}`
             }
           ],
           temperature: 0.7,
-          max_tokens: 2000
+          max_tokens: 3000
         }),
       });
 

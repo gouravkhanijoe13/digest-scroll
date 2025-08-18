@@ -219,6 +219,27 @@ serve(async (req) => {
       console.error('Error calling generate-cards:', generateError);
     }
 
+    console.log('Starting document categorization...');
+    
+    // Call categorize-document edge function
+    try {
+      const catRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/categorize-document`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+        },
+        body: JSON.stringify({ documentId: document.id })
+      });
+      
+      if (catRes.ok) {
+        const catResult = await catRes.json();
+        console.log('Document categorization completed:', catResult.category);
+      }
+    } catch (catError) {
+      console.error('Error categorizing document:', catError);
+    }
+
     // Update statuses to completed only after successful generation
     await Promise.all([
       supabaseClient
