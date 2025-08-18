@@ -39,5 +39,5 @@ jobs:
       - name: Test deployment
         run: |
           echo "Testing edge function deployment..."
-          # Basic health check - ping functions endpoint
-          curl -f "$SUPABASE_URL/functions/v1/" || exit 1
+          # Health check: OPTIONS to a known function should return 200 (CORS preflight)
+          curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS "$SUPABASE_URL/functions/v1/generate-cards" | grep -q "^200$"
