@@ -4,14 +4,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Link as LinkIcon, Trash2, Play } from 'lucide-react';
+import { FileText, Link as LinkIcon, Trash2, Play, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useWorkflow } from '@/contexts/WorkflowContext';
 
 interface Document {
   id: string;
   title: string;
   status: string;
   created_at: string;
+  source_id: string;
   sources: {
     content_type: string;
     url?: string;
@@ -28,6 +30,7 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const { open } = useWorkflow();
 
   useEffect(() => {
     if (user) {
@@ -44,6 +47,7 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
           title,
           status,
           created_at,
+          source_id,
           sources!inner (
             content_type,
             url,
@@ -238,13 +242,22 @@ export const DocumentList = ({ onCreateDeck }: DocumentListProps) => {
                 </div>
               </div>
               <div className="flex items-center space-x-2">
-                {doc.status === 'completed' && doc.cards.length > 0 && (
+                {doc.status === 'completed' && doc.cards.length > 0 ? (
                   <Button
                     size="sm"
                     onClick={() => openDeck(doc.id)}
                   >
                     <Play className="h-4 w-4 mr-1" />
                     Open Deck ({doc.cards.length} cards)
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => open(doc.source_id)}
+                  >
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    View Progress
                   </Button>
                 )}
                 <Button

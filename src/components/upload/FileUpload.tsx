@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Upload, FileText, Link as LinkIcon, X } from 'lucide-react';
+import { useWorkflow } from '@/contexts/WorkflowContext';
 
 interface FileUploadProps {
   onUploadComplete?: (sourceId: string) => void;
@@ -17,6 +18,7 @@ export const FileUpload = ({ onUploadComplete }: FileUploadProps) => {
   const [progress, setProgress] = useState(0);
   const [urlInput, setUrlInput] = useState('');
   const { user } = useAuth();
+  const { start } = useWorkflow();
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!user) return;
@@ -83,6 +85,7 @@ export const FileUpload = ({ onUploadComplete }: FileUploadProps) => {
         description: "Your document is being analyzed and processed.",
       });
 
+      start(source.id);
       onUploadComplete?.(source.id);
 
     } catch (error: any) {
@@ -151,6 +154,7 @@ export const FileUpload = ({ onUploadComplete }: FileUploadProps) => {
       });
 
       setUrlInput('');
+      start(source.id);
       onUploadComplete?.(source.id);
 
     } catch (error: any) {

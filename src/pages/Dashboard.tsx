@@ -6,6 +6,9 @@ import { FileUpload } from '@/components/upload/FileUpload';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { KnowledgeGraph } from '@/components/graph/KnowledgeGraph';
 import { WorkflowProgress } from '@/components/workflow/WorkflowProgress';
+import { WorkflowIndicator } from '@/components/workflow/WorkflowIndicator';
+import { WorkflowDrawer } from '@/components/workflow/WorkflowDrawer';
+import { WorkflowProvider } from '@/contexts/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, FileText } from 'lucide-react';
@@ -104,22 +107,26 @@ const GraphPage = () => {
 export const Dashboard = () => {
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar />
-        <main className="flex-1">
-          <header className="h-14 flex items-center border-b px-4">
-            <SidebarTrigger />
-          </header>
-          <div className="p-6">
-            <Routes>
-              <Route path="/" element={<DashboardHome />} />
-              <Route path="/documents" element={<DocumentsPage />} />
-              <Route path="/graph" element={<GraphPage />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </div>
-        </main>
-      </div>
+      <WorkflowProvider>
+        <div className="min-h-screen flex w-full">
+          <AppSidebar />
+          <main className="flex-1">
+            <header className="h-14 flex items-center border-b px-4 gap-2 justify-between">
+              <SidebarTrigger />
+              <WorkflowIndicator />
+            </header>
+            <div className="p-6">
+              <Routes>
+                <Route path="/" element={<DashboardHome />} />
+                <Route path="/documents" element={<DocumentsPage />} />
+                <Route path="/graph" element={<GraphPage />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </div>
+            <WorkflowDrawer />
+          </main>
+        </div>
+      </WorkflowProvider>
     </SidebarProvider>
   );
 };
