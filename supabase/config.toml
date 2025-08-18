@@ -9,8 +9,7 @@ max_rows = 1000
 
 [auth]
 enabled = true
-port = 54320
-external_url = "https://pprjjmbxiurwpaoncoqv.supabase.co"
+site_url = "https://pprjjmbxiurwpaoncoqv.supabase.co"
 
 [functions.process-pdf]
 verify_jwt = false

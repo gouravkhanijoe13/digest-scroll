@@ -21,12 +21,12 @@ jobs:
         with:
           version: latest
 
-      - name: Read project config (project_ref and url)
+      - name: Read project config (project_ref and site_url)
         id: cfg
         shell: bash
         run: |
           PROJECT_REF=$(grep -E '^project_id' supabase/config.toml | sed -E 's/.*"([^\"]+)".*/\1/')
-          EXTERNAL_URL=$(grep -E '^external_url' supabase/config.toml | sed -E 's/.*"([^\"]+)".*/\1/')
+          EXTERNAL_URL=$(grep -E '^site_url' supabase/config.toml | sed -E 's/.*"([^\"]+)".*/\1/')
           echo "PROJECT_REF=$PROJECT_REF" >> $GITHUB_ENV
           echo "SUPABASE_URL=$EXTERNAL_URL" >> $GITHUB_ENV
           echo "ref=$PROJECT_REF" >> $GITHUB_OUTPUT
