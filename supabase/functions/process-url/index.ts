@@ -245,15 +245,23 @@ serve(async (req) => {
       if (genRes.ok) {
         const result = await genRes.json();
         console.log('Card generation completed:', result);
-        cardGenSuccess = true;
+        if (result.ok && result.count > 0) {
+          cardGenSuccess = true;
+        } else {
+          console.error('Card generation returned error:', result);
+        }
       } else {
-        console.error("generate-cards failed:", await genRes.text());
+        const errorText = await genRes.text();
+        console.error("generate-cards failed:", genRes.status, errorText);
       }
     } catch (generateError) {
       console.error('Error calling generate-cards:', generateError);
     }
 
     // Update statuses to completed only after successful generation
+    const finalDeckStatus = cardGenSuccess ? 'completed' : 'failed';
+    console.log(`Setting deck status to: ${finalDeckStatus}`);
+    
     await Promise.all([
       supabaseClient
         .from('sources')
@@ -265,7 +273,7 @@ serve(async (req) => {
         .eq('id', document.id),
       supabaseClient
         .from('decks')
-        .update({ status: cardGenSuccess ? 'completed' : 'failed' })
+        .update({ status: finalDeckStatus })
         .eq('id', deck.id)
     ]);
 
@@ -275,7 +283,9 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         documentId: document.id,
-        chunksCount: insertedChunks.length
+        chunksCount: insertedChunks.length,
+        deckId: deck.id,
+        cardGenerationSuccess: cardGenSuccess
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

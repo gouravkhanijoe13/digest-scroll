@@ -31,16 +31,10 @@ serve(async (req) => {
 
     console.log('Generating cards for deck:', deckId);
 
-    // Get deck details and linked documents with metadata
+    // Step 1: Get deck details (simple select, no joins)
     const { data: deck, error: deckError } = await supabaseClient
       .from('decks')
-      .select(`
-        id, user_id, title,
-        deck_documents!inner(
-          document_id,
-          documents!inner(id, title, metadata)
-        )
-      `)
+      .select('id, user_id, title, status')
       .eq('id', deckId)
       .single();
 
@@ -48,12 +42,20 @@ serve(async (req) => {
       throw new Error('Deck not found');
     }
 
-    const documentIds = deck.deck_documents.map(dd => dd.document_id);
-    if (documentIds.length === 0) {
+    // Step 2: Get document IDs linked to this deck
+    const { data: deckDocuments, error: deckDocsError } = await supabaseClient
+      .from('deck_documents')
+      .select('document_id')
+      .eq('deck_id', deckId);
+
+    if (deckDocsError || !deckDocuments || deckDocuments.length === 0) {
       throw new Error('No documents linked to deck');
     }
 
-    // Get ordered chunks for the linked documents (limit to ~60, slice to ~16k chars)
+    const documentIds = deckDocuments.map(dd => dd.document_id);
+    console.log('Found', documentIds.length, 'documents linked to deck');
+
+    // Step 3: Get ordered chunks for the linked documents (limit to ~60, slice to ~16k chars)
     const { data: chunks, error: chunksError } = await supabaseClient
       .from('chunks')
       .select('id, content')
@@ -68,7 +70,7 @@ serve(async (req) => {
     }
 
     if (!chunks || chunks.length === 0) {
-      console.log('No chunks found for document');
+      console.log('No chunks found for documents');
       return new Response(JSON.stringify({ 
         ok: false, 
         message: 'No content to generate cards from',
@@ -88,8 +90,22 @@ serve(async (req) => {
 
     let cards = [];
 
-    // Get document category for specialized card generation
-    const category = deck.deck_documents[0]?.documents?.metadata?.category || 'educational_content';
+    // Get document category from first document's metadata
+    let category = 'educational_content';
+    try {
+      const { data: firstDoc } = await supabaseClient
+        .from('documents')
+        .select('metadata')
+        .eq('id', documentIds[0])
+        .single();
+      
+      if (firstDoc?.metadata?.category) {
+        category = firstDoc.metadata.category;
+      }
+    } catch (err) {
+      console.log('Could not determine document category, using default');
+    }
+
     console.log('Document category:', category);
 
     // Category-specific prompts and card counts
@@ -187,9 +203,8 @@ Build cards that progress logically from basic concepts to advanced applications
     // Fallback to stub cards if OpenAI failed
     if (cards.length === 0) {
       console.log('Creating fallback cards');
-      const docTitle = deck.deck_documents[0]?.documents?.title || 'Document';
       cards = [
-        { text: `Key concept from ${docTitle}\nReview the document content for details` },
+        { text: `Key concept from ${deck.title}\nReview the document content for details` },
         { text: `Important information\nFound in the uploaded document` },
         { text: `Learning point\nExtracted from the text content` },
         { text: `Main idea summary\nCore insights from the material` },
@@ -229,15 +244,25 @@ Build cards that progress logically from basic concepts to advanced applications
       position: index + 1
     }));
 
-    await supabaseClient
+    const { error: deckCardsError } = await supabaseClient
       .from('deck_cards')
       .insert(deckCards);
 
+    if (deckCardsError) {
+      console.error('Failed to insert deck_cards:', deckCardsError);
+      throw new Error('Failed to insert deck_cards');
+    }
+
     // Update deck status to completed
-    await supabaseClient
+    const { error: updateError } = await supabaseClient
       .from('decks')
       .update({ status: 'completed' })
       .eq('id', deck.id);
+
+    if (updateError) {
+      console.error('Failed to update deck status:', updateError);
+      throw new Error('Failed to update deck status');
+    }
 
     console.log('Card generation completed successfully');
 

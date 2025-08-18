@@ -73,14 +73,24 @@ export const WorkflowProgress = ({ sourceId, onComplete }: WorkflowProgressProps
 
         let deck = null;
         if (documents?.[0]) {
+          // Step 1: Get deck_id from deck_documents (no join)
           const { data: deckDocs } = await supabase
             .from('deck_documents')
-            .select('deck_id, decks(id, status)')
+            .select('deck_id')
             .eq('document_id', documents[0].id)
             .limit(1);
           
-          if (deckDocs?.[0]?.decks) {
-            deck = deckDocs[0].decks;
+          if (deckDocs?.[0]?.deck_id) {
+            // Step 2: Get deck details by id (separate call)
+            const { data: deckData } = await supabase
+              .from('decks')
+              .select('id, status')
+              .eq('id', deckDocs[0].deck_id)
+              .single();
+            
+            if (deckData) {
+              deck = deckData;
+            }
           }
         }
 
@@ -112,13 +122,15 @@ export const WorkflowProgress = ({ sourceId, onComplete }: WorkflowProgressProps
           updateStepStatus('generate', 'completed');
           setProgress(100);
           
-          // Check if we have cards
-          const { data: cards } = await supabase
+          // Check if we have cards by counting deck_cards
+          const { data: cards, error: cardsError } = await supabase
             .from('deck_cards')
             .select('card_id')
             .eq('deck_id', deck.id);
 
-          if (cards && cards.length > 0) {
+          if (cardsError) {
+            console.error('Error fetching cards:', cardsError);
+          } else if (cards && cards.length > 0) {
             toast({
               title: "Processing Complete!",
               description: `Generated ${cards.length} learning cards`,
