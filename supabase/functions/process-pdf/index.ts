@@ -195,57 +195,124 @@ serve(async (req) => {
       document_id: document.id
     });
 
-    console.log('PDF processing completed, triggering card generation...');
+    console.log('Starting sequential workflow: Document Analysis → Classification → Card Generation');
 
-    // Call generate-cards edge function with deckId
-    let cardGenSuccess = false;
+    // Step 1: Document Analysis using GPT-5
+    console.log('Step 1: Analyzing document with GPT-5...');
+    let analysisSuccess = false;
     try {
-      const genRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cards`, {
-        method: "POST",
+      const analysisResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ deckId: deck.id })
+        body: JSON.stringify({
+          model: 'gpt-5-2025-08-07',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert document analyzer. Analyze this document and provide:
+              1. Main themes and topics
+              2. Document complexity level (basic/intermediate/advanced)
+              3. Key learning objectives
+              4. Recommended study approach
+              Return your analysis as a JSON object with these fields: themes, complexity, objectives, approach.`
+            },
+            {
+              role: 'user',
+              content: `Document Title: ${document.title}\n\nContent:\n${extractedText.substring(0, 8000)}`
+            }
+          ],
+          max_completion_tokens: 1000
+        }),
       });
-      
-      if (genRes.ok) {
-        const result = await genRes.json();
-        console.log('Card generation completed:', result);
-        if (result.ok && result.count > 0) {
-          cardGenSuccess = true;
-        } else {
-          console.error('Card generation returned error:', result);
-        }
+
+      if (analysisResponse.ok) {
+        const analysisData = await analysisResponse.json();
+        const analysis = analysisData.choices[0]?.message?.content || '{}';
+        
+        // Update document with analysis
+        await supabaseClient
+          .from('documents')
+          .update({
+            metadata: { 
+              ...document.metadata, 
+              analysis: analysis,
+              analyzed_at: new Date().toISOString(),
+              analysis_model: 'gpt-5-2025-08-07'
+            }
+          })
+          .eq('id', document.id);
+        
+        console.log('Document analysis completed successfully');
+        analysisSuccess = true;
       } else {
-        const errorText = await genRes.text();
-        console.error("generate-cards failed:", genRes.status, errorText);
+        console.error('Document analysis failed:', await analysisResponse.text());
       }
-    } catch (generateError) {
-      console.error('Error calling generate-cards:', generateError);
+    } catch (analysisError) {
+      console.error('Error during document analysis:', analysisError);
     }
 
-    console.log('Starting document categorization...');
-    
-    // Call categorize-document edge function
-    try {
-      const catRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/categorize-document`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
-        },
-        body: JSON.stringify({ documentId: document.id })
-      });
-      
-      if (catRes.ok) {
-        const catResult = await catRes.json();
-        console.log('Document categorization completed:', catResult.category);
-      } else {
-        console.error('Document categorization failed:', await catRes.text());
+    // Step 2: Content Classification (only if analysis succeeded)
+    console.log('Step 2: Starting content classification...');
+    let classificationSuccess = false;
+    if (analysisSuccess) {
+      try {
+        const catRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/categorize-document`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+          },
+          body: JSON.stringify({ documentId: document.id })
+        });
+        
+        if (catRes.ok) {
+          const catResult = await catRes.json();
+          console.log('Document categorization completed:', catResult.category);
+          classificationSuccess = true;
+        } else {
+          console.error('Document categorization failed:', await catRes.text());
+        }
+      } catch (catError) {
+        console.error('Error categorizing document:', catError);
       }
-    } catch (catError) {
-      console.error('Error categorizing document:', catError);
+    } else {
+      console.log('Skipping classification due to analysis failure');
+    }
+
+    // Step 3: Card Generation (only if classification succeeded)
+    console.log('Step 3: Starting card generation...');
+    let cardGenSuccess = false;
+    if (classificationSuccess) {
+      try {
+        const genRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cards`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`
+          },
+          body: JSON.stringify({ deckId: deck.id })
+        });
+        
+        if (genRes.ok) {
+          const result = await genRes.json();
+          console.log('Card generation completed:', result);
+          if (result.ok && result.count > 0) {
+            cardGenSuccess = true;
+          } else {
+            console.error('Card generation returned error:', result);
+          }
+        } else {
+          const errorText = await genRes.text();
+          console.error("generate-cards failed:", genRes.status, errorText);
+        }
+      } catch (generateError) {
+        console.error('Error calling generate-cards:', generateError);
+      }
+    } else {
+      console.log('Skipping card generation due to classification failure');
     }
 
     // Update statuses to completed only after successful generation
